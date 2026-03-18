@@ -629,7 +629,7 @@ function OpenModal({ onClose, onFile }) {
           <p className="mo-hint">Paste a path and copy the terminal command below, then paste the file contents</p>
           <div style={{display:"flex",gap:8}}>
             <input className="mo-inp" value={localPath} onChange={e => setLocalPath(e.target.value)}
-              placeholder="/Users/rigo/ghub/project/README.md" />
+              placeholder="/path/to/file.md" />
           </div>
           {localPath.trim() && !localPath.startsWith("http") && (
             <div className="mo-path-helper">
