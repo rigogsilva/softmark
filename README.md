@@ -107,21 +107,22 @@ No extra configuration needed — cmux detection is automatic.
 
 ## Updating the artifact
 
-The Claude artifact viewer (`softmark --open` / `--ai`) is a published Claude artifact. To update it:
+`softmark.jsx` is the single source of truth — it powers both the local renderer and the Claude artifact. To update:
 
-1. **Edit `softmark.sh`** in this repo — the embedded HTML renderer is in the heredoc block
-2. **Ask Claude to update the artifact** — open the existing artifact URL, paste the new HTML, and ask Claude to republish it
+1. **Edit `softmark.jsx`** in this repo
+2. **Ask Claude to republish the artifact** — share the updated JSX and ask Claude to update and publish it
 3. **Check if the link changed** — Claude may generate a new artifact URL when republishing
    - If the URL is the **same**: no action needed
    - If the URL **changed**: update the hardcoded default in `softmark.sh`:
      ```bash
-     # Line ~40 in softmark.sh
+     # Line ~44 in softmark.sh
      SOFTMARK_AI_URL="${SOFTMARK_AI_URL:-https://claude.ai/public/artifacts/NEW-URL-HERE}"
      ```
 4. **Commit and reinstall**:
    ```bash
-   git add softmark.sh && git commit -m "update: new artifact URL"
+   cp softmark.jsx ~/.config/softmark/softmark.jsx
    cp softmark.sh ~/.local/bin/softmark
+   git add softmark.jsx softmark.sh && git commit -m "update: softmark renderer"
    ```
 
 Current artifact: `https://claude.ai/public/artifacts/45ebea89-f898-436a-96fa-c6587e0aa08d`
@@ -138,7 +139,7 @@ To have Claude automatically use Softmark when you ask it to open or review `.md
 When the user asks to view, open, or review a `.md` file, use `softmark` from the terminal.
 Binary: `~/.local/bin/softmark`
 
-Two modes:
+Three modes:
 
 - **Rendered view** — opens the file as a formatted HTML preview in a cmux browser pane:
   ```bash
@@ -147,6 +148,10 @@ Two modes:
 - **AI review mode** — copies file content to clipboard and opens the Claude artifact viewer in a cmux browser pane (user pastes content there):
   ```bash
   softmark --ai path/to/file.md
+  ```
+- **Open viewer** — opens the Claude artifact viewer without a file (pin it to your browser):
+  ```bash
+  softmark --open
   ```
 
 Always prefer `softmark` over printing raw markdown to the terminal when the user wants to read or review a file.
