@@ -306,10 +306,14 @@ function htmlToMd(html) {
 /* ──────────────────────────────────────────────
    EDITABLE BLOCK — Rich + Raw editing
    ────────────────────────────────────────────── */
-function EditableBlock({ blockMd, index, onSave, comments, showComments, userNotes, onAddNote, onDeleteNote }) {
+function EditableBlock({ blockMd, index, onSave, comments, showComments, userNotes, onAddNote, onDeleteNote, onEditNote }) {
   const [editMode, setEditMode] = useState(null); // null | "rich" | "raw"
   const [commenting, setCommenting] = useState(false);
   const [noteText, setNoteText] = useState("");
+  const [editingNote, setEditingNote] = useState(null); // note _id being edited
+  const [editNoteText, setEditNoteText] = useState("");
+  const [replyingTo, setReplyingTo] = useState(null); // _id of note being replied to
+  const [replyText, setReplyText] = useState("");
   const [draft, setDraft] = useState(blockMd);
   const [hovered, setHovered] = useState(false);
   const [linkInput, setLinkInput] = useState(false);
@@ -406,6 +410,16 @@ function EditableBlock({ blockMd, index, onSave, comments, showComments, userNot
       onAddNote(index, noteText.trim(), words);
       setNoteText("");
       setCommenting(false);
+    }
+  };
+
+  const submitReply = () => {
+    if (replyText.trim() && replyingTo) {
+      const parent = userNotes.find(n => n._id === replyingTo);
+      const quote = parent ? parent.quote : blockMd.replace(/[#*`~\[\]()>-]/g, "").trim().split(/\s+/).slice(0, 6).join(" ");
+      onAddNote(index, replyText.trim(), quote, replyingTo);
+      setReplyText("");
+      setReplyingTo(null);
     }
   };
 
@@ -544,25 +558,72 @@ function EditableBlock({ blockMd, index, onSave, comments, showComments, userNot
         </div>}
       </div>
 
-      {/* User notes for this block */}
-      {hasNotes && userNotes.map((n, ni) => (
-        <div key={ni} className="unote">
-          <div className="unote-bar" />
-          <div className="unote-body">
-            <span className="unote-author">You</span>
-            <span className="unote-text">{n.text}</span>
+      {/* User notes for this block — threaded */}
+      {hasNotes && (() => {
+        const roots = userNotes.filter(n => !n.parentId);
+        const getReplies = (id) => userNotes.filter(n => n.parentId === id);
+        const renderNote = (n, isReply) => (
+          <div key={n._id} className={`unote ${isReply ? "unote-reply" : ""}`}>
+            <div className="unote-bar" />
+            {editingNote === n._id ? (
+              <div className="unote-body" style={{flex:1}}>
+                <textarea className="unote-edit-ta" value={editNoteText}
+                  onChange={e => setEditNoteText(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (editNoteText.trim()) { onEditNote(n._id, editNoteText.trim()); } setEditingNote(null); }
+                    if (e.key === "Escape") setEditingNote(null);
+                  }}
+                  autoFocus
+                />
+                <div style={{display:"flex",gap:4,marginTop:4}}>
+                  <button className="bsm bsm-a" onClick={() => { if (editNoteText.trim()) onEditNote(n._id, editNoteText.trim()); setEditingNote(null); }}>Save</button>
+                  <button className="bsm" onClick={() => setEditingNote(null)}>Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <div className="unote-body" style={{flex:1}}>
+                <span className="unote-text" style={{cursor:"pointer"}} onClick={() => { setEditingNote(n._id); setEditNoteText(n.text); }}>{n.text}</span>
+                {!isReply && <button className="unote-reply-btn" onClick={() => { setReplyingTo(n._id); setReplyText(""); }}>Reply</button>}
+              </div>
+            )}
+            <button className="unote-x" onClick={() => onDeleteNote(n._id)}>✕</button>
           </div>
-          <button className="unote-x" onClick={() => onDeleteNote(n._id)}>✕</button>
-        </div>
-      ))}
+        );
+        return roots.map(n => (
+          <div key={n._id}>
+            {renderNote(n, false)}
+            {getReplies(n._id).map(r => renderNote(r, true))}
+            {replyingTo === n._id && (
+              <div className="unote-input unote-reply">
+                <div className="unote-bar" />
+                <textarea className="unote-field" value={replyText} onChange={e => setReplyText(e.target.value)}
+                  placeholder="Reply... (Shift+Enter for newline)"
+                  rows={1}
+                  autoFocus
+                  onKeyDown={e => {
+                    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitReply(); }
+                    if (e.key === "Escape") { setReplyingTo(null); setReplyText(""); }
+                  }}
+                />
+                <button className="bsm bsm-a" onClick={submitReply}>Reply</button>
+                <button className="bsm" onClick={() => { setReplyingTo(null); setReplyText(""); }}>Cancel</button>
+              </div>
+            )}
+          </div>
+        ));
+      })()}
 
       {/* Comment input */}
       {commenting && (
         <div className="unote-input">
           <div className="unote-bar" />
-          <input ref={noteRef} className="unote-field" value={noteText} onChange={e => setNoteText(e.target.value)}
-            placeholder="Add your comment or question..."
-            onKeyDown={e => { if (e.key === "Enter") submitNote(); if (e.key === "Escape") { setCommenting(false); setNoteText(""); } }}
+          <textarea ref={noteRef} className="unote-field" value={noteText} onChange={e => setNoteText(e.target.value)}
+            placeholder="Add your comment or question... (Shift+Enter for newline)"
+            rows={1}
+            onKeyDown={e => {
+              if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitNote(); }
+              if (e.key === "Escape") { setCommenting(false); setNoteText(""); }
+            }}
           />
           <button className="bsm bsm-a" onClick={submitNote}>Add</button>
           <button className="bsm" onClick={() => { setCommenting(false); setNoteText(""); }}>Cancel</button>
@@ -713,6 +774,18 @@ export default function App() {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
+  // Warn before closing with unsaved comments
+  useEffect(() => {
+    const handler = (e) => {
+      if (comments.length > 0 || userNotes.length > 0) {
+        e.preventDefault();
+        e.returnValue = "You have unsaved review comments.";
+      }
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [comments, userNotes]);
+
   // Scroll listener: detect which AI comment highlight is in view
   useEffect(() => {
     if (comments.length === 0) return;
@@ -750,9 +823,73 @@ export default function App() {
   };
 
   const load = useCallback((text, name) => {
-    setMarkdown(text); setFileName(name); setMode("rendered");
-    setBlocks(splitIntoBlocks(text));
-    setComments([]); setAiResult(null); setChat([]); setShowOpen(false);
+    // Extract saved review comments from the markdown
+    // Format: > **[AI]** "quote" — comment  OR  > **[Review]** "quote" — comment
+    const extractedAi = [];
+    const extractedUser = [];
+    const lines = text.split("\n");
+    let lastReviewId = null;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      // Match: > **[AI]** "..." — ... or > **[Review]** "..." — ... or > **[Reply]** "..." — ...
+      const m = line.match(/^>\s*\*\*\[(AI|Review|Reply)\]\*\*\s*"(.+?)"\s*—\s*(.+)/);
+      if (m) {
+        const type = m[1];
+        const quote = m[2];
+        let comment = m[3].trim();
+        // Check for continuation lines
+        while (i + 1 < lines.length && lines[i + 1].trim() && !lines[i + 1].startsWith(">") && !lines[i + 1].startsWith("#")) {
+          i++;
+          comment += " " + lines[i].trim();
+        }
+        if (type === "AI") {
+          extractedAi.push({ _id: Date.now() + extractedAi.length, quote, comment, source: "content" });
+        } else if (type === "Reply" && lastReviewId) {
+          // Explicit reply tag
+          extractedUser.push({ _id: Date.now() + 2000 + extractedUser.length, quote, text: comment, parentId: lastReviewId });
+        } else if (type === "Review" && quote.startsWith("Review ") && lastReviewId) {
+          // Old format: quote starting with "Review " is a reply to the previous comment
+          const cleanQuote = quote.replace(/^Review\s+"?/, "").replace(/"$/, "");
+          extractedUser.push({ _id: Date.now() + 2000 + extractedUser.length, quote: cleanQuote, text: comment, parentId: lastReviewId });
+        } else {
+          const id = Date.now() + 1000 + extractedUser.length;
+          extractedUser.push({ _id: id, quote, text: comment, parentId: null });
+          lastReviewId = id;
+        }
+      }
+    }
+
+    // Strip review comments from the markdown to get clean content
+    let cleanText = text;
+    if (extractedAi.length > 0 || extractedUser.length > 0) {
+      // Match entire lines starting with > **[AI/Review/Reply]**
+      cleanText = text.replace(/\n*>\s*\*\*\[(AI|Review|Reply)\]\*\*.+/g, "");
+      cleanText = cleanText.replace(/\n{3,}/g, "\n\n").trim();
+    }
+
+    setMarkdown(cleanText); setFileName(name); setMode("rendered");
+    setBlocks(splitIntoBlocks(cleanText));
+    setComments(extractedAi); setAiResult(null); setChat([]); setShowOpen(false);
+
+    // Map extracted user notes to block indices
+    if (extractedUser.length > 0) {
+      const blks = splitIntoBlocks(cleanText);
+      const stripMdFn = (s) => s.replace(/\*\*/g,"").replace(/\*/g,"").replace(/`/g,"").replace(/~/g,"").toLowerCase();
+      const mapped = extractedUser.map(n => {
+        let blockIndex = 0;
+        for (let i = 0; i < blks.length; i++) {
+          if (stripMdFn(blks[i]).includes(stripMdFn(n.quote))) { blockIndex = i; break; }
+        }
+        return { ...n, blockIndex };
+      });
+      setUserNotes(mapped);
+    } else {
+      setUserNotes([]);
+    }
+
+    if (extractedAi.length > 0 || extractedUser.length > 0) {
+      setShowCom(true);
+    }
   }, []);
 
   // Auto-load content injected by CLI launcher
@@ -783,9 +920,11 @@ export default function App() {
         if (!c) try { c = JSON.parse(r.replace(/```(?:json)?\s*/gi,"").replace(/```/g,"").trim()); } catch {}
         if (!c) { const m = r.match(/\[[\s\S]*\]/); if (m) try { c = JSON.parse(m[0]); } catch {} }
         if (c && Array.isArray(c) && c.length) {
-          const v = c.filter(x => x.quote && x.comment).map((x, idx) => ({ ...x, _id: idx + 1 }));
-          setComments(v); setShowCom(true);
-          setAiResult(`${v.length} ${a.id === "review-content" ? "content" : "writing"} comments added. Look for highlights in the preview.`);
+          const base = Date.now();
+          const source = a.id === "review-content" ? "content" : "writing";
+          const v = c.filter(x => x.quote && x.comment).map((x, idx) => ({ ...x, _id: base + idx, source }));
+          setComments(prev => [...prev, ...v]); setShowCom(true);
+          setAiResult(`${v.length} ${source} comments added. Look for highlights in the preview.`);
         } else throw new Error();
       } catch { setAiResult(`${a.label}:\n\n` + r); }
     } else {
@@ -807,11 +946,11 @@ export default function App() {
   // Map comments to blocks — fuzzy match stripping markdown syntax
   const stripMd = (s) => s.replace(/\*\*/g,"").replace(/\*/g,"").replace(/`/g,"").replace(/~/g,"").replace(/\[([^\]]+)\]\([^)]+\)/g,"$1").toLowerCase();
   const bc = blocks.map(() => []);
-  comments.forEach((c) => {
+  comments.forEach((c, idx) => {
     if (!c.quote) return;
     const q = stripMd(c.quote);
     for (let bi = 0; bi < blocks.length; bi++) {
-      if (stripMd(blocks[bi]).includes(q)) { bc[bi].push({ ...c, gIdx: c._id }); break; }
+      if (stripMd(blocks[bi]).includes(q)) { bc[bi].push({ ...c, gIdx: idx + 1 }); break; }
     }
   });
 
@@ -982,6 +1121,7 @@ export default function App() {
         .citem-active{border-color:var(--warn);background:rgba(196,121,58,.15);box-shadow:inset 3px 0 0 var(--warn)}
         .citem .ci{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:var(--warn);color:#fff;font-size:10px;font-weight:700;margin-right:6px;flex-shrink:0}
         .citem .cq{color:var(--text3);font-style:italic;display:block;margin-top:4px;font-size:11.5px}
+        .citem .cq-src{display:inline-block;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:1px 6px;border-radius:4px;background:var(--bg2);color:var(--text3);margin-top:4px}
 
         mark.ai-hl{background:rgba(196,121,58,.15);border-bottom:2px solid var(--warn);border-radius:2px;padding:1px 2px;position:relative;cursor:pointer;transition:background .3s}
         mark.ai-hl:hover{background:rgba(196,121,58,.28)}
@@ -1003,11 +1143,16 @@ export default function App() {
         .unote-bar{width:3px;min-height:100%;border-radius:2px;background:var(--accent);flex-shrink:0;align-self:stretch}
         .unote-body{flex:1}
         .unote-author{font-size:10px;font-weight:600;color:var(--accent2);text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:2px}
-        .unote-text{font-size:13px;line-height:1.5;color:var(--text)}
+        .unote-text{font-size:13px;line-height:1.5;color:var(--text);white-space:pre-wrap}
+        .unote-edit-ta{width:100%;min-height:36px;border:1.5px solid var(--accent);border-radius:6px;padding:6px 10px;font-family:var(--font-ui);font-size:13px;line-height:1.5;color:var(--text);background:var(--surface);outline:none;resize:vertical}
         .unote-x{border:none;background:none;font-size:13px;color:var(--text3);cursor:pointer;padding:0;line-height:1}
         .unote-x:hover{color:var(--warn)}
+        .unote-reply{margin-left:40px}
+        .unote-reply .unote-bar{background:var(--border2)}
+        .unote-reply-btn{border:none;background:none;font-family:var(--font-ui);font-size:11px;color:var(--text3);cursor:pointer;padding:2px 0;margin-top:2px}
+        .unote-reply-btn:hover{color:var(--accent2)}
         .unote-input{display:flex;align-items:center;gap:8px;margin:4px 0 8px 8px;padding:8px 12px}
-        .unote-field{flex:1;padding:6px 10px;border:1.5px solid var(--accent);border-radius:6px;font-family:var(--font-ui);font-size:13px;outline:none;color:var(--text);background:var(--surface)}
+        .unote-field{flex:1;padding:6px 10px;border:1.5px solid var(--accent);border-radius:6px;font-family:var(--font-ui);font-size:13px;outline:none;color:var(--text);background:var(--surface);resize:none;min-height:36px;line-height:1.5}
         .unote-field:focus{box-shadow:0 0 0 3px rgba(61,107,82,.1)}
         .unote-field::placeholder{color:var(--text3)}
 
@@ -1069,6 +1214,13 @@ export default function App() {
 
         .fcb{position:fixed;bottom:20px;right:20px;z-index:80;padding:10px 16px;border-radius:24px;border:1px solid var(--border);background:var(--surface);box-shadow:var(--shadow-md);font-family:var(--font-ui);font-size:12px;font-weight:600;color:var(--warn);cursor:pointer;display:flex;align-items:center;gap:6px}
         .fcb:hover{box-shadow:var(--shadow-lg);transform:translateY(-1px)}
+        .save-toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:90;padding:10px 20px;border-radius:10px;background:var(--warn);color:#fff;font-family:var(--font-ui);font-size:13px;font-weight:500;box-shadow:var(--shadow-lg);display:flex;align-items:center;gap:10px;cursor:pointer;animation:toast-in .3s ease}
+        .save-toast-x{border:none;background:none;color:rgba(255,255,255,.7);font-size:16px;cursor:pointer}
+        .save-toast-x:hover{color:#fff}
+        @keyframes toast-in{from{opacity:0;transform:translateX(-50%) translateY(20px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+        button.btn-save-warn{background:var(--warn)!important;color:#fff!important;border-color:var(--warn)!important;animation:pulse-save 2s infinite}
+        button.btn-save-warn:hover{background:#A5622E!important;border-color:#A5622E!important;color:#fff!important}
+        @keyframes pulse-save{0%,100%{box-shadow:0 0 0 0 rgba(196,121,58,.3)}50%{box-shadow:0 0 0 4px rgba(196,121,58,.1)}}
 
         @media(max-width:840px){.aip{position:fixed;inset:0;width:100%;min-width:0;z-index:150}.wrap{padding:24px 16px 100px}.stats{display:none}.toc-sidebar{display:none}}
         @media print{.topbar,.abar,.aip,.fcb,.bview-badge,.toc-sidebar,.bview-actions{display:none!important}.wrap{padding:0;max-width:100%}.bview{cursor:default}.bview:hover{background:0 0;box-shadow:none}}
@@ -1168,7 +1320,7 @@ export default function App() {
               <div className="tb-sep" />
               <div className="tb-group">
                 <button className="btn" onClick={() => setShowOpen(true)}>Open</button>
-                <button className="btn" onClick={() => {
+                <button className={`btn ${(comments.length > 0 || userNotes.length > 0) ? "btn-save-warn" : ""}`} onClick={() => {
                   try {
                     let saveName = "document";
                     if (fileName && !["New document", "Pasted", "Pasted content"].includes(fileName)) {
@@ -1193,8 +1345,13 @@ export default function App() {
                         blockAi.forEach(c => {
                           inlineNotes.push(`> **[AI]** "${c.quote}" — ${c.comment}`);
                         });
-                        blockUser.forEach(n => {
+                        const roots = blockUser.filter(n => !n.parentId);
+                        const getReplies = (id) => blockUser.filter(n => n.parentId === id);
+                        roots.forEach(n => {
                           inlineNotes.push(`> **[Review]** "${n.quote}" — ${n.text}`);
+                          getReplies(n._id).forEach(r => {
+                            inlineNotes.push(`> **[Reply]** "${r.quote}" — ${r.text}`);
+                          });
                         });
                         if (inlineNotes.length > 0) {
                           part += "\n\n" + inlineNotes.join("\n>\n");
@@ -1215,6 +1372,7 @@ export default function App() {
                     a.click();
                     document.body.removeChild(a);
                     URL.revokeObjectURL(url);
+                    setSaveMsg("");
                   } catch { navigator.clipboard.writeText(markdown); }
                 }}>Save</button>
                 <button className={`btn ${(comments.length > 0 || userNotes.length > 0) ? "" : "btn-dis"}`}
@@ -1222,14 +1380,36 @@ export default function App() {
                   onClick={() => {
                     let out = `## Softmark Review — ${fileName || "document"}\n\n`;
                     if (comments.length > 0) {
-                      out += `### AI Review (${aiTitle})\n\n`;
-                      out += comments.map((c, i) => `${i + 1}. > "${c.quote}"\n   ${c.comment}`).join("\n\n");
-                      out += "\n\n";
+                      const contentComments = comments.filter(c => c.source === "content");
+                      const writingComments = comments.filter(c => c.source === "writing");
+                      const otherComments = comments.filter(c => !c.source);
+                      if (contentComments.length > 0) {
+                        out += `### AI Review — Content\n\n`;
+                        out += contentComments.map((c, i) => `${i + 1}. > "${c.quote}"\n   ${c.comment}`).join("\n\n");
+                        out += "\n\n";
+                      }
+                      if (writingComments.length > 0) {
+                        out += `### AI Review — Writing\n\n`;
+                        out += writingComments.map((c, i) => `${i + 1}. > "${c.quote}"\n   ${c.comment}`).join("\n\n");
+                        out += "\n\n";
+                      }
+                      if (otherComments.length > 0) {
+                        out += `### AI Review\n\n`;
+                        out += otherComments.map((c, i) => `${i + 1}. > "${c.quote}"\n   ${c.comment}`).join("\n\n");
+                        out += "\n\n";
+                      }
                     }
                     if (userNotes.length > 0) {
-                      out += `### My Comments\n\n`;
-                      out += userNotes.map((n, i) => `${i + 1}. > "${n.quote}"\n   ${n.text}`).join("\n\n");
-                      out += "\n";
+                      out += `### Comments\n\n`;
+                      const roots = userNotes.filter(n => !n.parentId);
+                      const getReplies = (id) => userNotes.filter(n => n.parentId === id);
+                      roots.forEach((n, i) => {
+                        out += `${i + 1}. > "${n.quote}"\n   ${n.text}\n`;
+                        getReplies(n._id).forEach(r => {
+                          out += `\n   ↳ ${r.text}\n`;
+                        });
+                        out += "\n";
+                      });
                     }
                     setCopyText(out);
                   }}>Copy Review</button>
@@ -1292,8 +1472,15 @@ export default function App() {
               {mode === "rendered" && blocks.map((b, i) => (
                 <EditableBlock key={`${i}-${b.slice(0,20)}`} blockMd={b} index={i} onSave={handleBlockSave} comments={bc[i]} showComments={showCom}
                   userNotes={userNotes.filter(n => n.blockIndex === i)}
-                  onAddNote={(bi, text, quote) => setUserNotes(prev => [...prev, { _id: Date.now(), blockIndex: bi, text, quote }])}
+                  onAddNote={(bi, text, quote, parentId) => {
+                    setUserNotes(prev => {
+                      const next = [...prev, { _id: Date.now(), blockIndex: bi, text, quote, parentId: parentId || null }];
+                      if (prev.filter(n => !n.parentId).length === 0) setSaveMsg("💡 Remember to Save when done — comments are not persisted automatically");
+                      return next;
+                    });
+                  }}
                   onDeleteNote={(id) => setUserNotes(prev => prev.filter(n => n._id !== id))}
+                  onEditNote={(id, text) => setUserNotes(prev => prev.map(n => n._id === id ? { ...n, text } : n))}
                 />
               ))}
               {mode === "source" && <div className="src">{markdown}</div>}
@@ -1331,29 +1518,52 @@ export default function App() {
                         <button className="clist-btn" onClick={() => {
                           let out = `## Softmark Review — ${fileName || "document"}\n\n`;
                           if (comments.length > 0) {
-                            out += `### AI Review (${aiTitle})\n\n`;
-                            out += comments.map((c, i) => `${i + 1}. > "${c.quote}"\n   ${c.comment}`).join("\n\n");
-                            out += "\n\n";
+                            const contentComments = comments.filter(c => c.source === "content");
+                            const writingComments = comments.filter(c => c.source === "writing");
+                            const otherComments = comments.filter(c => !c.source);
+                            if (contentComments.length > 0) {
+                              out += `### AI Review — Content\n\n`;
+                              out += contentComments.map((c, i) => `${i + 1}. > "${c.quote}"\n   ${c.comment}`).join("\n\n");
+                              out += "\n\n";
+                            }
+                            if (writingComments.length > 0) {
+                              out += `### AI Review — Writing\n\n`;
+                              out += writingComments.map((c, i) => `${i + 1}. > "${c.quote}"\n   ${c.comment}`).join("\n\n");
+                              out += "\n\n";
+                            }
+                            if (otherComments.length > 0) {
+                              out += `### AI Review\n\n`;
+                              out += otherComments.map((c, i) => `${i + 1}. > "${c.quote}"\n   ${c.comment}`).join("\n\n");
+                              out += "\n\n";
+                            }
                           }
                           if (userNotes.length > 0) {
-                            out += `### My Comments\n\n`;
-                            out += userNotes.map((n, i) => `${i + 1}. > "${n.quote}"\n   ${n.text}`).join("\n\n");
-                            out += "\n";
+                            out += `### Comments\n\n`;
+                            const roots = userNotes.filter(n => !n.parentId);
+                            const getReplies = (id) => userNotes.filter(n => n.parentId === id);
+                            roots.forEach((n, i) => {
+                              out += `${i + 1}. > "${n.quote}"\n   ${n.text}\n`;
+                              getReplies(n._id).forEach(r => {
+                                out += `\n   ↳ ${r.text}\n`;
+                              });
+                              out += "\n";
+                            });
                           }
                           setCopyText(out);
                         }}>Copy review</button>
                         {comments.length > 0 && <button className="clist-btn clist-btn-dim" onClick={() => { setComments([]); setActiveComment(-1); }}>Dismiss AI</button>}
                       </div>
                     </div>
-                    {comments.map((c) => {
-                      const hlId = `hl-${c._id}`;
+                    {comments.map((c, cIdx) => {
+                      const displayIdx = cIdx + 1;
+                      const hlId = `hl-${displayIdx}`;
                       return (
                         <div key={c._id} className={`citem citem-click ${activeComment === c._id ? "citem-active" : ""}`}>
                           <div className="citem-body" onClick={() => {
                             let el = document.getElementById(hlId);
                             if (!el) {
                               const marks = document.querySelectorAll("mark.ai-hl");
-                              for (const m of marks) { if (m.dataset.comment === String(c._id)) { el = m; break; } }
+                              for (const m of marks) { if (m.dataset.comment === String(displayIdx)) { el = m; break; } }
                             }
                             if (!el && c.quote) {
                               const cleanQ = c.quote.replace(/\*\*/g,"").replace(/\*/g,"").replace(/`/g,"").replace(/~/g,"").trim().toLowerCase();
@@ -1373,8 +1583,9 @@ export default function App() {
                               setTimeout(() => el.classList.remove("ai-hl-flash"), 1500);
                             }
                           }}>
-                            <span className="ci">{c._id}</span>
+                            <span className="ci">{displayIdx}</span>
                             <span>{c.comment}</span>
+                            {c.source && <span className="cq-src">{c.source}</span>}
                             <span className="cq">"{c.quote}"</span>
                           </div>
                           <button className="citem-x" onClick={(e) => {
@@ -1415,6 +1626,13 @@ export default function App() {
         <button className="fcb" onClick={() => { setShowCom(!showCom); setAiOpen(true); }}>
           💬 {comments.length} AI Comments
         </button>
+      )}
+
+      {saveMsg && (
+        <div className="save-toast" onClick={() => setSaveMsg("")}>
+          {saveMsg}
+          <button className="save-toast-x" onClick={() => setSaveMsg("")}>✕</button>
+        </div>
       )}
     </div>
   );
