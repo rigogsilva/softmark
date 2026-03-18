@@ -41,7 +41,7 @@ EOF
 }
 
 load_config
-SOFTMARK_AI_URL="${SOFTMARK_AI_URL:-https://claude.ai/public/artifacts/e3e69f30-3603-4d4e-93a7-5c75ec53d480}"
+SOFTMARK_AI_URL="${SOFTMARK_AI_URL:-https://claude.ai/public/artifacts/45ebea89-f898-436a-96fa-c6587e0aa08d}"
 
 # ── Colors ──
 GREEN='\033[0;32m'

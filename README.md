@@ -10,7 +10,7 @@ Three modes:
 | **AI review** | `softmark --ai file.md` | Copies content to clipboard + opens the Claude artifact viewer |
 | **Open viewer** | `softmark --open` | Opens the Claude artifact viewer (no file — pin it to your browser) |
 
-Or just open the viewer in your browser now: **[Softmark AI Viewer →](https://claude.ai/public/artifacts/e3e69f30-3603-4d4e-93a7-5c75ec53d480)**
+Or just open the viewer in your browser now: **[Softmark AI Viewer →](https://claude.ai/public/artifacts/45ebea89-f898-436a-96fa-c6587e0aa08d)**
 
 ---
 
@@ -124,7 +124,7 @@ The Claude artifact viewer (`softmark --open` / `--ai`) is a published Claude ar
    cp softmark.sh ~/.local/bin/softmark
    ```
 
-Current artifact: `https://claude.ai/public/artifacts/e3e69f30-3603-4d4e-93a7-5c75ec53d480`
+Current artifact: `https://claude.ai/public/artifacts/45ebea89-f898-436a-96fa-c6587e0aa08d`
 
 ---
 
@@ -160,7 +160,7 @@ Config is stored at `~/.config/softmark/config`:
 
 ```bash
 # Softmark config
-SOFTMARK_AI_URL="https://claude.ai/public/artifacts/e3e69f30-3603-4d4e-93a7-5c75ec53d480"
+SOFTMARK_AI_URL="https://claude.ai/public/artifacts/45ebea89-f898-436a-96fa-c6587e0aa08d"
 ```
 
 You can edit it directly or run `softmark --config` to use the interactive wizard.
