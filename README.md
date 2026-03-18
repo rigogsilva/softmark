@@ -65,6 +65,8 @@ softmark --open
 
 Opens the Claude artifact viewer directly with no file. Useful for pinning it to your browser as a persistent tab for quick paste-and-review sessions.
 
+Or open it directly: **[Softmark AI Viewer →](https://claude.ai/public/artifacts/e3e69f30-3603-4d4e-93a7-5c75ec53d480)**
+
 ### Force open in default browser (skip cmux)
 
 ```bash
