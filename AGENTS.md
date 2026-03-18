@@ -39,7 +39,8 @@ npx prettier --write "*.md"
 ### Updating the renderer (softmark.jsx)
 
 1. Edit `softmark.jsx`
-2. Install locally: `cp softmark.jsx ~/.config/softmark/softmark.jsx`
+2. Install locally: `cp softmark.jsx ~/.config/softmark/softmark.jsx` (users
+   will get the update on next `install.sh` run from GitHub)
 3. Test: `softmark path/to/file.md`
 4. Ask Claude to republish the artifact with the updated JSX
 5. If the artifact URL changed, update line ~44 in `softmark.sh`:

@@ -33,15 +33,24 @@ Optional (for in-terminal browser pane):
 ## Install
 
 ```bash
-# 1. Copy both files
-mkdir -p ~/.local/bin ~/.config/softmark
-cp softmark.sh ~/.local/bin/softmark
-cp softmark.jsx ~/.config/softmark/softmark.jsx
-chmod +x ~/.local/bin/softmark
+curl -fsSL https://raw.githubusercontent.com/rigogsilva/softmark/main/install.sh | bash
+```
 
-# 2. Make sure ~/.local/bin is in your PATH
-#    Add this to your ~/.zshrc or ~/.bashrc if needed:
-export PATH="$HOME/.local/bin:$PATH"
+This downloads `softmark` and `softmark.jsx` from GitHub and installs them to
+`~/.local/bin` and `~/.config/softmark`. No build step or dependencies beyond
+`python3` (pre-installed on macOS).
+
+Make sure `~/.local/bin` is in your PATH (the installer will remind you if
+needed):
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"  # add to ~/.zshrc
+```
+
+**To uninstall:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rigogsilva/softmark/main/uninstall.sh | bash
 ```
 
 No configuration needed — the default artifact URL is hardcoded and works out of
