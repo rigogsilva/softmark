@@ -415,16 +415,21 @@ PYEOF
 
 # ── Open ──
 if ! $FORCE_BROWSER && command -v cmux &>/dev/null && [[ -n "${CMUX_SURFACE_ID:-}" ]]; then
-  # Inside cmux — open in a browser pane
+  # Inside cmux — serve via localhost so WebKit can load it
+  PORT=$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
+  TMPDIR_SERVE=$(dirname "$TMPFILE")
+  TMPNAME=$(basename "$TMPFILE")
+  python3 -m http.server "$PORT" --directory "$TMPDIR_SERVE" --bind 127.0.0.1 &>/dev/null &
+  SERVER_PID=$!
   echo -e "${GREEN}✓${NC} Opening ${BOLD}${FILENAME}${NC} in cmux browser pane"
-  cmux browser open "file://${TMPFILE}"
-  # Notify
+  cmux browser open-split "http://127.0.0.1:${PORT}/${TMPNAME}"
   cmux notify --title "Softmark" --body "Opened ${FILENAME}" 2>/dev/null || true
+  # Clean up server and file after delay
+  (sleep 30 && kill "$SERVER_PID" 2>/dev/null; rm -f "$TMPFILE") &
 else
   # Fallback to default browser
   echo -e "${GREEN}✓${NC} Opening ${BOLD}${FILENAME}${NC} in browser"
   open "$TMPFILE"
+  # Clean up after delay
+  (sleep 10 && rm -f "$TMPFILE") &
 fi
-
-# Clean up after delay (give browser time to load the file)
-(sleep 30 && rm -f "$TMPFILE") &
