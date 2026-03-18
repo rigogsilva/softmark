@@ -28,8 +28,10 @@ Optional (for in-terminal browser pane):
 ## Install
 
 ```bash
-# 1. Copy the script
+# 1. Copy both files
+mkdir -p ~/.local/bin ~/.config/softmark
 cp softmark.sh ~/.local/bin/softmark
+cp softmark.jsx ~/.config/softmark/softmark.jsx
 chmod +x ~/.local/bin/softmark
 
 # 2. Make sure ~/.local/bin is in your PATH
@@ -40,6 +42,8 @@ export PATH="$HOME/.local/bin:$PATH"
 No configuration needed — the default artifact URL is hardcoded and works out of the box.
 
 > **Optional:** Run `softmark --config` to point to your own published artifact instead of the default one.
+
+> **Note:** `softmark.jsx` is the single source of truth for the renderer. It powers both the local preview (wrapped with React CDN by the shell script) and the Claude artifact. When you update the JSX, both stay in sync automatically.
 
 ---
 
