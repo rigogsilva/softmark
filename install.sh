@@ -56,10 +56,25 @@ echo -e "${GREEN}✓${NC} Installed ${BOLD}softmark${NC} to ${DIM}${BIN_DIR}/sof
 echo -e "${GREEN}✓${NC} Installed ${BOLD}softmark.jsx${NC} to ${DIM}${CONFIG_DIR}/softmark.jsx${NC}"
 echo ""
 
-# ── PATH check ──
+# ── PATH setup ──
+SHELL_RC=""
+if [[ "${SHELL}" == */zsh ]]; then
+  SHELL_RC="${HOME}/.zshrc"
+elif [[ "${SHELL}" == */bash ]]; then
+  SHELL_RC="${HOME}/.bashrc"
+fi
+
 if ! echo "$PATH" | grep -q "${BIN_DIR}"; then
-  echo -e "Add ${BOLD}~/.local/bin${NC} to your PATH:"
-  echo -e "  ${DIM}echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc && source ~/.zshrc${NC}"
+  if [[ -n "$SHELL_RC" ]]; then
+    echo "" >> "$SHELL_RC"
+    echo "# Added by Softmark installer" >> "$SHELL_RC"
+    echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$SHELL_RC"
+    echo -e "${GREEN}✓${NC} Added ${BOLD}~/.local/bin${NC} to PATH in ${DIM}${SHELL_RC}${NC}"
+    echo -e "  Run ${DIM}source ${SHELL_RC}${NC} or open a new terminal to apply."
+  else
+    echo -e "Add ${BOLD}~/.local/bin${NC} to your PATH manually:"
+    echo -e "  ${DIM}export PATH=\"\$HOME/.local/bin:\$PATH\"${NC}"
+  fi
   echo ""
 fi
 
