@@ -83,6 +83,7 @@ show_help() {
   echo ""
   echo -e "  ${GREEN}softmark${NC} <file.md>              Open in cmux pane (or browser)"
   echo -e "  ${GREEN}softmark --ai${NC} <file.md>         Copy to clipboard + open Claude artifact"
+  echo -e "  ${GREEN}softmark --open${NC}                 Open the Claude artifact viewer (no file)"
   echo -e "  ${GREEN}softmark --browser${NC} <file.md>    Force open in default browser"
   echo -e "  ${GREEN}softmark --config${NC}               Configure Softmark settings"
   echo -e "  ${GREEN}softmark -h${NC}                      Show this help"
@@ -94,17 +95,30 @@ show_help() {
 # ── Args ──
 AI_MODE=false
 FORCE_BROWSER=false
+OPEN_MODE=false
 FILE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --ai) AI_MODE=true; shift ;;
     --browser) FORCE_BROWSER=true; shift ;;
+    --open) OPEN_MODE=true; shift ;;
     --config) run_config; exit 0 ;;
     -h|--help) show_help; exit 0 ;;
     *) FILE="$1"; shift ;;
   esac
 done
+
+# ── Open mode: just open the artifact viewer ──
+if $OPEN_MODE; then
+  echo -e "${DIM}Opening Softmark AI viewer...${NC}"
+  if command -v cmux &>/dev/null && [[ -n "${CMUX_SURFACE_ID:-}" ]]; then
+    cmux browser open "$SOFTMARK_AI_URL"
+  else
+    open "$SOFTMARK_AI_URL"
+  fi
+  exit 0
+fi
 
 if [[ -z "$FILE" ]]; then
   show_help

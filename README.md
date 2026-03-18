@@ -2,12 +2,13 @@
 
 Markdown previewer for the terminal. Opens `.md` files as a formatted HTML preview or sends them to the Claude AI artifact viewer — all from your terminal, without leaving your workflow.
 
-Two modes:
+Three modes:
 
 | Mode | Command | What it does |
 |------|---------|-------------|
 | **Rendered view** | `softmark file.md` | Renders markdown as styled HTML in a browser pane |
 | **AI review** | `softmark --ai file.md` | Copies content to clipboard + opens the Claude artifact viewer |
+| **Open viewer** | `softmark --open` | Opens the Claude artifact viewer (no file — pin it to your browser) |
 
 ---
 
@@ -32,29 +33,11 @@ chmod +x ~/.local/bin/softmark
 # 2. Make sure ~/.local/bin is in your PATH
 #    Add this to your ~/.zshrc or ~/.bashrc if needed:
 export PATH="$HOME/.local/bin:$PATH"
-
-# 3. Configure (first time, or after publishing a new artifact)
-softmark --config
 ```
 
-The config wizard sets the Claude artifact URL used by `--ai` mode:
+No configuration needed — the default artifact URL is hardcoded and works out of the box.
 
-```
-Softmark — Configuration
-
-Config file: ~/.config/softmark/config
-
-Current settings:
-  AI URL: https://claude.ai
-
-Enter your published Softmark artifact URL
-(paste the URL from Claude after publishing, or press Enter to keep current)
-> https://claude.ai/public/artifacts/e3e69f30-3603-4d4e-93a7-5c75ec53d480
-
-✓ Config saved to ~/.config/softmark/config
-```
-
-> The default artifact URL (`https://claude.ai/public/artifacts/e3e69f30-3603-4d4e-93a7-5c75ec53d480`) is a publicly hosted Softmark artifact. You can use it as-is or publish your own and configure it.
+> **Optional:** Run `softmark --config` to point to your own published artifact instead of the default one.
 
 ---
 
@@ -74,6 +57,14 @@ softmark --ai path/to/file.md
 
 Copies the file content to your clipboard, then opens the Claude artifact viewer. Paste the content there for an AI-assisted review session.
 
+### Open viewer — open the artifact without a file
+
+```bash
+softmark --open
+```
+
+Opens the Claude artifact viewer directly with no file. Useful for pinning it to your browser as a persistent tab for quick paste-and-review sessions.
+
 ### Force open in default browser (skip cmux)
 
 ```bash
@@ -86,30 +77,48 @@ softmark --browser path/to/file.md
 
 ### Regular terminal (no cmux)
 
-Both modes fall back to `open` (macOS default browser):
+All modes fall back to `open` (macOS default browser):
 
 ```bash
-# Rendered view → opens file:///tmp/softmark-XXXX.html in your default browser
-softmark file.md
-
-# AI mode → opens the Claude artifact URL in your default browser
-softmark --ai file.md
+softmark file.md          # → opens rendered preview in default browser
+softmark --ai file.md     # → opens Claude artifact in default browser
+softmark --open           # → opens Claude artifact in default browser
 ```
 
 ### Inside cmux
 
-When running inside a [cmux](https://github.com/rigogsilva/cmux) session (`$CMUX_SURFACE_ID` is set), Softmark opens a browser pane split in your current workspace instead of launching an external browser:
+When running inside a [cmux](https://github.com/rigogsilva/cmux) session (`$CMUX_SURFACE_ID` is set), Softmark opens a browser pane split in your current workspace:
 
 ```bash
-# Rendered view → opens in a cmux browser split pane
-softmark file.md
-
-# AI mode → opens Claude artifact in a cmux browser split pane
-#            (content already copied to clipboard — paste it there)
-softmark --ai file.md
+softmark file.md          # → rendered preview in cmux browser split pane
+softmark --ai file.md     # → Claude artifact in cmux pane (paste content there)
+softmark --open           # → Claude artifact in cmux pane (pin it, reuse anytime)
 ```
 
 No extra configuration needed — cmux detection is automatic.
+
+---
+
+## Updating the artifact
+
+The Claude artifact viewer (`softmark --open` / `--ai`) is a published Claude artifact. To update it:
+
+1. **Edit `softmark.sh`** in this repo — the embedded HTML renderer is in the heredoc block
+2. **Ask Claude to update the artifact** — open the existing artifact URL, paste the new HTML, and ask Claude to republish it
+3. **Check if the link changed** — Claude may generate a new artifact URL when republishing
+   - If the URL is the **same**: no action needed
+   - If the URL **changed**: update the hardcoded default in `softmark.sh`:
+     ```bash
+     # Line ~40 in softmark.sh
+     SOFTMARK_AI_URL="${SOFTMARK_AI_URL:-https://claude.ai/public/artifacts/NEW-URL-HERE}"
+     ```
+4. **Commit and reinstall**:
+   ```bash
+   git add softmark.sh && git commit -m "update: new artifact URL"
+   cp softmark.sh ~/.local/bin/softmark
+   ```
+
+Current artifact: `https://claude.ai/public/artifacts/e3e69f30-3603-4d4e-93a7-5c75ec53d480`
 
 ---
 
