@@ -739,11 +739,19 @@ export default function App() {
     return () => docEl.removeEventListener("scroll", onScroll);
   }, [comments]);
 
-  const blocks = splitIntoBlocks(markdown);
-  const handleBlockSave = (i, t) => { const b = [...blocks]; b[i] = t; setMarkdown(joinBlocks(b)); };
+  const [blocks, setBlocks] = useState([]);
+  const handleBlockSave = (i, t) => {
+    setBlocks(prev => {
+      const b = [...prev];
+      b[i] = t;
+      setMarkdown(joinBlocks(b));
+      return b;
+    });
+  };
 
   const load = useCallback((text, name) => {
     setMarkdown(text); setFileName(name); setMode("rendered");
+    setBlocks(splitIntoBlocks(text));
     setComments([]); setAiResult(null); setChat([]); setShowOpen(false);
   }, []);
 
@@ -761,7 +769,7 @@ export default function App() {
     const r = new FileReader(); r.onload = e => load(e.target.result, file.name); r.readAsText(file);
   }, [load]);
 
-  const reset = () => { setMarkdown(""); setFileName(null); setMode("rendered"); setPasteText(""); setAiTitle(""); setAiOpen(false); setComments([]); setUserNotes([]); setAiResult(null); setChat([]); };
+  const reset = () => { setMarkdown(""); setFileName(null); setMode("rendered"); setPasteText(""); setAiTitle(""); setAiOpen(false); setComments([]); setUserNotes([]); setAiResult(null); setChat([]); setBlocks([]); };
 
   const runAction = async (a) => {
     setAiLoading(true); setAiOpen(true); setAiTitle(a.label); setAiResult(null);
