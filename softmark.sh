@@ -37,7 +37,7 @@ EOF
 load_config
 
 # Defaults (env var overrides config file)
-SOFTMARK_AI_URL="${SOFTMARK_AI_URL:-https://claude.ai}"
+SOFTMARK_AI_URL="${SOFTMARK_AI_URL:-https://claude.ai/public/artifacts/e3e69f30-3603-4d4e-93a7-5c75ec53d480}"
 
 # ── Colors ──
 GREEN='\033[0;32m'
