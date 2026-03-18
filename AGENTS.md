@@ -11,12 +11,28 @@ AGENTS.md      — This file
 
 ## How it works
 
-`softmark.jsx` is a self-contained React component that renders markdown. It is used in two ways:
+`softmark.jsx` is a self-contained React component that renders markdown. It is
+used in two ways:
 
 1. **As a Claude artifact** — published at the artifact URL in `softmark.sh`
-2. **Locally** — `softmark.sh` reads it, strips `import`/`export default`, wraps it in an HTML file with React + Babel loaded from CDN, injects the markdown content, and serves it via a local Python HTTP server
+2. **Locally** — `softmark.sh` reads it, strips `import`/`export default`, wraps
+   it in an HTML file with React + Babel loaded from CDN, injects the markdown
+   content, and serves it via a local Python HTTP server
 
-This means **editing `softmark.jsx` updates both** — the local renderer and the artifact (after republishing).
+This means **editing `softmark.jsx` updates both** — the local renderer and the
+artifact (after republishing).
+
+## Formatting
+
+Markdown files in this repo are formatted with [Prettier](https://prettier.io/).
+Config: `.prettierrc` (prose wrap at 80 chars). Shell and JSX files are excluded
+via `.prettierignore`.
+
+Before committing `.md` changes, run:
+
+```bash
+npx prettier --write "*.md"
+```
 
 ## Making changes
 
@@ -36,7 +52,8 @@ This means **editing `softmark.jsx` updates both** — the local renderer and th
 ### Updating the launcher (softmark.sh)
 
 1. Edit `softmark.sh`
-2. Reinstall: `cp softmark.sh ~/.local/bin/softmark && chmod +x ~/.local/bin/softmark`
+2. Reinstall:
+   `cp softmark.sh ~/.local/bin/softmark && chmod +x ~/.local/bin/softmark`
 3. Test all modes (see below)
 4. Commit
 
@@ -61,12 +78,16 @@ softmark --help
 
 ## Key implementation details
 
-- `softmark.sh` strips `import { ... } from "react"` and `export default` from the JSX at runtime using `sed` — React is provided via CDN
+- `softmark.sh` strips `import { ... } from "react"` and `export default` from
+  the JSX at runtime using `sed` — React is provided via CDN
 - Content injection uses Python (not sed) to safely handle special characters
-- cmux detection: `$CMUX_SURFACE_ID` env var — set automatically inside cmux sessions
-- cmux opens via `cmux browser open-split "http://127.0.0.1:PORT/file.html"` — uses localhost because WebKit in cmux does not load `file://` URLs
+- cmux detection: `$CMUX_SURFACE_ID` env var — set automatically inside cmux
+  sessions
+- cmux opens via `cmux browser open-split "http://127.0.0.1:PORT/file.html"` —
+  uses localhost because WebKit in cmux does not load `file://` URLs
 - A Python HTTP server is spun up on a random port and killed after 30 seconds
-- Artifact URL is hardcoded as default in `softmark.sh` line ~44; users can override via `softmark --config`
+- Artifact URL is hardcoded as default in `softmark.sh` line ~44; users can
+  override via `softmark --config`
 
 ## Current artifact URL
 
