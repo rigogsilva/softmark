@@ -117,7 +117,7 @@ done
 # ── Open mode: just open the artifact viewer ──
 if $OPEN_MODE; then
   echo -e "${DIM}Opening Softmark AI viewer...${NC}"
-  if command -v cmux &>/dev/null && [[ -n "${CMUX_SURFACE_ID:-}" ]]; then
+  if ! $FORCE_BROWSER && command -v cmux &>/dev/null && [[ -n "${CMUX_SURFACE_ID:-}" ]]; then
     cmux browser open "$SOFTMARK_AI_URL"
   else
     open "$SOFTMARK_AI_URL"
@@ -143,7 +143,7 @@ if $AI_MODE; then
   echo "$CONTENT" | pbcopy
   echo -e "${GREEN}✓${NC} Copied ${BOLD}${FILENAME}${NC} to clipboard (${#CONTENT} chars)"
   echo -e "${DIM}Opening Softmark AI... paste your content there${NC}"
-  if command -v cmux &>/dev/null && [[ -n "${CMUX_SURFACE_ID:-}" ]]; then
+  if ! $FORCE_BROWSER && command -v cmux &>/dev/null && [[ -n "${CMUX_SURFACE_ID:-}" ]]; then
     cmux browser open "$SOFTMARK_AI_URL"
   else
     open "$SOFTMARK_AI_URL"
