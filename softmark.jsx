@@ -160,6 +160,20 @@ function splitIntoBlocks(md) {
 function joinBlocks(blocks) { return blocks.join("\n\n"); }
 
 /* ──────────────────────────────────────────────
+   FRONTMATTER
+   ────────────────────────────────────────────── */
+function stripFrontmatter(source) {
+  const match = source.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+  if (!match) return { body: source, rawFrontmatter: null, frontmatter: null };
+  const meta = {};
+  match[1].split('\n').forEach(line => {
+    const kv = line.match(/^(\w[\w-]*)\s*:\s*(.+)/);
+    if (kv) meta[kv[1]] = kv[2].replace(/^["']|["']$/g, '');
+  });
+  return { body: source.slice(match[0].length), rawFrontmatter: match[0], frontmatter: meta };
+}
+
+/* ──────────────────────────────────────────────
    AI HELPERS
    ────────────────────────────────────────────── */
 async function callClaude(systemPrompt, userMessage) {
@@ -636,7 +650,7 @@ function EditableBlock({ blockMd, index, onSave, comments, showComments, userNot
 /* ──────────────────────────────────────────────
    OPEN MODAL
    ────────────────────────────────────────────── */
-function OpenModal({ onClose, onFile }) {
+function OpenModal({ onClose, onFile, onFolder }) {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -644,6 +658,7 @@ function OpenModal({ onClose, onFile }) {
   const [pathPaste, setPathPaste] = useState("");
   const [copied, setCopied] = useState(false);
   const fref = useRef(null);
+  const folderRef = useRef(null);
 
   const loadUrl = async () => {
     if (!url.trim()) return;
@@ -683,6 +698,23 @@ function OpenModal({ onClose, onFile }) {
           <button className="btn btn-accent" style={{width:"100%"}} onClick={() => fref.current?.click()}>Browse files...</button>
           <input ref={fref} type="file" accept=".md,.markdown,.txt,.mdx" style={{display:"none"}}
             onChange={e => { const f = e.target.files[0]; if (f) { const r = new FileReader(); r.onload = ev => onFile(ev.target.result, f.name); r.readAsText(f); }}} />
+          {onFolder && (
+            <>
+              <button className="btn" style={{width:"100%",marginTop:8}} onClick={() => folderRef.current?.click()}>Browse folder...</button>
+              <input ref={folderRef} type="file" webkitdirectory="" style={{display:"none"}}
+                onChange={e => {
+                  const mdFiles = Array.from(e.target.files)
+                    .filter(f => /\.(md|markdown|txt|mdx)$/i.test(f.name))
+                    .sort((a, b) => a.name.localeCompare(b.name));
+                  if (mdFiles.length === 0) return;
+                  Promise.all(mdFiles.map(f => new Promise((resolve) => {
+                    const r = new FileReader();
+                    r.onload = ev => resolve({ name: f.name, path: f.webkitRelativePath || f.name, content: ev.target.result });
+                    r.readAsText(f);
+                  }))).then(fileList => onFolder(fileList));
+                }} />
+            </>
+          )}
         </div>
         <div className="mo-div"><span>or</span></div>
         <div className="mo-sec">
@@ -748,6 +780,13 @@ export default function App() {
   const [copyMsg, setCopyMsg] = useState("");
   const [copyText, setCopyText] = useState(null);
   const [tocOpen, setTocOpen] = useState(false);
+  // Frontmatter
+  const [rawFrontmatter, setRawFrontmatter] = useState(null);
+  const [frontmatterMeta, setFrontmatterMeta] = useState(null);
+  // Multi-file
+  const [files, setFiles] = useState(null); // {path: {name, content, comments, userNotes, blocks, modified, rawFrontmatter, frontmatterMeta}}
+  const [activeFilePath, setActiveFilePath] = useState(null);
+  const [sidebarTab, setSidebarTab] = useState("outline"); // "outline" | "files"
   const [dark, setDark] = useState(() => {
     try { return window.matchMedia("(prefers-color-scheme: dark)").matches; } catch { return false; }
   });
@@ -823,11 +862,17 @@ export default function App() {
   };
 
   const load = useCallback((text, name) => {
+    // Strip YAML frontmatter before processing
+    const fm = stripFrontmatter(text);
+    setRawFrontmatter(fm.rawFrontmatter);
+    setFrontmatterMeta(fm.frontmatter);
+    const textBody = fm.body;
+
     // Extract saved review comments from the markdown
     // Format: > **[AI]** "quote" — comment  OR  > **[Review]** "quote" — comment
     const extractedAi = [];
     const extractedUser = [];
-    const lines = text.split("\n");
+    const lines = textBody.split("\n");
     let lastReviewId = null;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
@@ -860,10 +905,10 @@ export default function App() {
     }
 
     // Strip review comments from the markdown to get clean content
-    let cleanText = text;
+    let cleanText = textBody;
     if (extractedAi.length > 0 || extractedUser.length > 0) {
       // Match entire lines starting with > **[AI/Review/Reply]**
-      cleanText = text.replace(/\n*>\s*\*\*\[(AI|Review|Reply)\]\*\*.+/g, "");
+      cleanText = textBody.replace(/\n*>\s*\*\*\[(AI|Review|Reply)\]\*\*.+/g, "");
       cleanText = cleanText.replace(/\n{3,}/g, "\n\n").trim();
     }
 
@@ -892,21 +937,86 @@ export default function App() {
     }
   }, []);
 
+  // Multi-file: save current file state back to the files map
+  const saveCurrentFileToMap = useCallback(() => {
+    if (!activeFilePath || !files) return;
+    setFiles(prev => ({
+      ...prev,
+      [activeFilePath]: {
+        ...prev[activeFilePath],
+        content: markdown,
+        blocks,
+        comments,
+        userNotes,
+        rawFrontmatter,
+        frontmatterMeta,
+        modified: (prev[activeFilePath]._origContent || "").trim() !== markdown.trim() || comments.length > 0 || userNotes.length > 0
+      }
+    }));
+  }, [activeFilePath, files, markdown, blocks, comments, userNotes, rawFrontmatter, frontmatterMeta]);
+
+  // Multi-file: switch to a different file
+  const switchToFile = useCallback((path) => {
+    if (path === activeFilePath) return;
+    saveCurrentFileToMap();
+    const f = files[path];
+    setActiveFilePath(path);
+    setFileName(f.name);
+    if (f.blocks && f.blocks.length > 0) {
+      // Restore previously loaded state
+      setMarkdown(f.content);
+      setBlocks(f.blocks);
+      setComments(f.comments || []);
+      setUserNotes(f.userNotes || []);
+      setRawFrontmatter(f.rawFrontmatter || null);
+      setFrontmatterMeta(f.frontmatterMeta || null);
+      setMode("rendered");
+    } else {
+      // First time — use the full load() pipeline
+      load(f.content, f.name);
+    }
+  }, [activeFilePath, files, saveCurrentFileToMap, load]);
+
+  // Multi-file: load a folder of files
+  const loadFolder = useCallback((fileList) => {
+    const map = {};
+    fileList.forEach(f => {
+      const fm = stripFrontmatter(f.content);
+      // Strip comments too so _origContent matches what load() produces in markdown state
+      let body = fm.body.replace(/\n*>\s*\*\*\[(AI|Review|Reply)\]\*\*.+/g, "").replace(/\n{3,}/g, "\n\n").trim();
+      map[f.path || f.name] = {
+        name: f.name, content: f.content, _origContent: body,
+        comments: [], userNotes: [], blocks: null, modified: false,
+        rawFrontmatter: null, frontmatterMeta: null
+      };
+    });
+    setFiles(map);
+    setSidebarTab("files");
+    setTocOpen(true);
+    const firstPath = Object.keys(map)[0];
+    setActiveFilePath(firstPath);
+    load(fileList[0].content, fileList[0].name);
+  }, [load]);
+
   // Auto-load content injected by CLI launcher
   useEffect(() => {
     if (window.__SOFTMARK_INJECT__) {
-      const { content, filename } = window.__SOFTMARK_INJECT__;
-      if (content) load(content, filename || "document.md");
+      const inject = window.__SOFTMARK_INJECT__;
+      if (inject.mode === "folder" && inject.files) {
+        loadFolder(inject.files);
+      } else if (inject.content) {
+        load(inject.content, inject.filename || "document.md");
+      }
       delete window.__SOFTMARK_INJECT__;
     }
-  }, [load]);
+  }, [load, loadFolder]);
 
   const handleFile = useCallback((file) => {
     if (!file) return;
     const r = new FileReader(); r.onload = e => load(e.target.result, file.name); r.readAsText(file);
   }, [load]);
 
-  const reset = () => { setMarkdown(""); setFileName(null); setMode("rendered"); setPasteText(""); setAiTitle(""); setAiOpen(false); setComments([]); setUserNotes([]); setAiResult(null); setChat([]); setBlocks([]); };
+  const reset = () => { setMarkdown(""); setFileName(null); setMode("rendered"); setPasteText(""); setAiTitle(""); setAiOpen(false); setComments([]); setUserNotes([]); setAiResult(null); setChat([]); setBlocks([]); setRawFrontmatter(null); setFrontmatterMeta(null); setFiles(null); setActiveFilePath(null); setSidebarTab("outline"); };
 
   const runAction = async (a) => {
     setAiLoading(true); setAiOpen(true); setAiTitle(a.label); setAiResult(null);
@@ -1051,6 +1161,16 @@ export default function App() {
         .toc-h2{padding-left:12px}
         .toc-h3{padding-left:24px;font-size:11px;color:var(--text3)}
         .toc-h4,.toc-h5,.toc-h6{padding-left:36px;font-size:11px;color:var(--text3)}
+        .toc-item-active{background:var(--accent-light)!important;color:var(--accent2)!important;font-weight:600}
+        .toc-tabs{display:flex;gap:0;background:var(--bg2);border-radius:6px;padding:2px;flex:1;margin-right:6px}
+        .toc-tab{flex:1;border:none;background:none;font-family:var(--font-ui);font-size:11px;font-weight:500;color:var(--text3);padding:4px 8px;border-radius:4px;cursor:pointer;transition:.15s}
+        .toc-tab:hover{color:var(--text2)}
+        .toc-tab-on{background:var(--surface);color:var(--accent2);font-weight:600;box-shadow:var(--shadow-sm)}
+        .file-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--warn);margin-left:auto;flex-shrink:0}
+        .file-comment-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);margin-left:4px;flex-shrink:0}
+        .fm-pills{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border)}
+        .fm-pill{display:inline-flex;align-items:center;gap:4px;padding:2px 10px;border-radius:9999px;background:var(--bg2);border:1px solid var(--border);font-family:var(--font-ui);font-size:12px;line-height:1.5;color:var(--text2)}
+        .fm-pill strong{color:var(--text);font-weight:600}
         .wrap{max-width:740px;margin:0 auto;padding:36px 32px 120px}
 
         /* Block editing */
@@ -1227,7 +1347,7 @@ export default function App() {
       `}</style>
 
       {isDragging && <div className="drag-overlay"><span>Drop your .md file here</span></div>}
-      {showOpen && <OpenModal onClose={() => setShowOpen(false)} onFile={load} />}
+      {showOpen && <OpenModal onClose={() => setShowOpen(false)} onFile={load} onFolder={loadFolder} />}
       <input ref={tbFileRef} type="file" accept=".md,.markdown,.txt,.mdx" style={{display:"none"}}
         onChange={e => { const f = e.target.files[0]; if (f) handleFile(f); e.target.value = ""; }} />
 
@@ -1363,6 +1483,11 @@ export default function App() {
                       content = markdown;
                     }
 
+                    // Prepend frontmatter verbatim
+                    if (rawFrontmatter) {
+                      content = rawFrontmatter + content;
+                    }
+
                     const blob = new Blob([content], { type: "text/markdown" });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement("a");
@@ -1442,15 +1567,22 @@ export default function App() {
       {hasDoc && (
         <div className="main">
           {/* TOC left sidebar */}
-          {mode === "rendered" && toc.length > 1 && (
+          {mode === "rendered" && (toc.length > 1 || files) && (
             <div className={`toc-sidebar ${tocOpen ? "toc-open" : "toc-closed"}`}>
               <div className="toc-hdr">
-                <span className="toc-label">{tocOpen ? "Contents" : ""}</span>
+                {tocOpen && files ? (
+                  <div className="toc-tabs">
+                    <button className={`toc-tab ${sidebarTab === "files" ? "toc-tab-on" : ""}`} onClick={() => setSidebarTab("files")}>Files</button>
+                    <button className={`toc-tab ${sidebarTab === "outline" ? "toc-tab-on" : ""}`} onClick={() => setSidebarTab("outline")}>Outline</button>
+                  </div>
+                ) : (
+                  <span className="toc-label">{tocOpen ? "Contents" : ""}</span>
+                )}
                 <button className="toc-toggle" onClick={() => setTocOpen(!tocOpen)} title={tocOpen ? "Collapse" : "Expand contents"}>
                   {tocOpen ? "◀" : "▶"}
                 </button>
               </div>
-              {tocOpen && (
+              {tocOpen && sidebarTab === "outline" && (
                 <div className="toc-list">
                   {toc.map((h, i) => (
                     <button key={i} className={`toc-item toc-h${h.level}`} onClick={() => {
@@ -1464,11 +1596,31 @@ export default function App() {
                   ))}
                 </div>
               )}
+              {tocOpen && sidebarTab === "files" && files && (
+                <div className="toc-list">
+                  {Object.entries(files).map(([path, f]) => (
+                    <button key={path} className={`toc-item ${path === activeFilePath ? "toc-item-active" : ""}`}
+                      onClick={() => switchToFile(path)}
+                      style={{display:"flex",alignItems:"center",gap:"4px"}}>
+                      <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis"}}>{f.name}</span>
+                      {f.modified && <span className="file-dot" />}
+                      {((f.comments && f.comments.length > 0) || (f.userNotes && f.userNotes.length > 0)) && <span className="file-comment-dot" />}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
           <div className="doc" ref={docRef}>
             <div className="wrap" style={{ fontSize: `${fontSize}px` }}>
+              {mode === "rendered" && frontmatterMeta && (
+                <div className="fm-pills">
+                  {Object.entries(frontmatterMeta).filter(([k]) => !["layout","permalink"].includes(k)).map(([k,v]) => (
+                    <span key={k} className="fm-pill"><strong>{k}</strong> {v}</span>
+                  ))}
+                </div>
+              )}
               {mode === "rendered" && blocks.map((b, i) => (
                 <EditableBlock key={`${i}-${b.slice(0,20)}`} blockMd={b} index={i} onSave={handleBlockSave} comments={bc[i]} showComments={showCom}
                   userNotes={userNotes.filter(n => n.blockIndex === i)}

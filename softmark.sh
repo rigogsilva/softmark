@@ -86,6 +86,7 @@ show_help() {
   echo -e "${BOLD}Softmark${NC} — Markdown, made simple"
   echo ""
   echo -e "  ${GREEN}softmark${NC} <file.md>              Open in cmux pane (or browser)"
+  echo -e "  ${GREEN}softmark${NC} <folder/>             Open all .md files in folder"
   echo -e "  ${GREEN}softmark --ai${NC} <file.md>         Copy to clipboard + open Claude artifact"
   echo -e "  ${GREEN}softmark --open${NC}                 Open the Claude artifact viewer (no file)"
   echo -e "  ${GREEN}softmark --browser${NC} <file.md>    Force open in default browser"
@@ -130,15 +131,45 @@ if [[ -z "$FILE" ]]; then
   exit 1
 fi
 
-if [[ ! -f "$FILE" ]]; then
-  echo -e "${RED}Error:${NC} file not found: ${FILE}"
+FOLDER_MODE=false
+if [[ -d "$FILE" ]]; then
+  FOLDER_MODE=true
+  FOLDER_PATH="$(cd "$FILE" && pwd)"
+  FILENAME=$(basename "$FOLDER_PATH")
+  # Build JSON array of files using Python
+  ESCAPED_FILES=$(python3 -c "
+import sys, os, json
+folder = sys.argv[1]
+files = []
+for root, dirs, filenames in sorted(os.walk(folder)):
+    for f in sorted(filenames):
+        if f.lower().endswith(('.md', '.markdown', '.txt', '.mdx')):
+            path = os.path.join(root, f)
+            rel = os.path.relpath(path, folder)
+            with open(path, 'r') as fh:
+                files.append({'name': f, 'path': rel, 'content': fh.read()})
+if not files:
+    print('ERROR: no markdown files found in ' + folder, file=sys.stderr)
+    sys.exit(1)
+print(json.dumps(files))
+" "$FOLDER_PATH")
+  if [[ $? -ne 0 ]]; then
+    echo -e "${RED}Error:${NC} no markdown files found in ${FILE}"
+    exit 1
+  fi
+elif [[ -f "$FILE" ]]; then
+  FILENAME=$(basename "$FILE")
+  CONTENT=$(cat "$FILE")
+else
+  echo -e "${RED}Error:${NC} not found: ${FILE}"
   exit 1
 fi
 
-FILENAME=$(basename "$FILE")
-CONTENT=$(cat "$FILE")
-
 # ── AI Mode: copy to clipboard + open Claude artifact ──
+if $AI_MODE && $FOLDER_MODE; then
+  echo -e "${RED}Error:${NC} --ai mode is not supported for folders"
+  exit 1
+fi
 if $AI_MODE; then
   echo "$CONTENT" | pbcopy
   echo -e "${GREEN}✓${NC} Copied ${BOLD}${FILENAME}${NC} to clipboard (${#CONTENT} chars)"
@@ -164,18 +195,23 @@ TMPFILE=$(mktemp /tmp/softmark-XXXXXX.html)
 # Read the JSX source
 JSX_SOURCE=$(cat "$SOFTMARK_JSX")
 
-# Escape content for JS embedding
-ESCAPED_CONTENT=$(python3 -c "
+# Build inject JSON
+if $FOLDER_MODE; then
+  INJECT_JSON="$ESCAPED_FILES"
+  # Wrap in folder mode object
+  INJECT_JSON=$(python3 -c "
+import sys, json
+files = json.loads(sys.argv[1])
+print(json.dumps({'mode': 'folder', 'files': files, 'folderName': sys.argv[2]}))
+" "$ESCAPED_FILES" "$FILENAME")
+else
+  INJECT_JSON=$(python3 -c "
 import sys, json
 with open(sys.argv[1], 'r') as f:
     content = f.read()
-print(json.dumps(content))
-" "$FILE")
-
-ESCAPED_FILENAME=$(python3 -c "
-import sys, json
-print(json.dumps(sys.argv[1]))
-" "$FILENAME")
+print(json.dumps({'content': content, 'filename': sys.argv[2]}))
+" "$FILE" "$FILENAME")
+fi
 
 # Build the HTML wrapper
 cat > "$TMPFILE" << 'HTMLEOF'
@@ -196,10 +232,7 @@ cat > "$TMPFILE" << 'HTMLEOF'
 const { useState, useCallback, useRef, useEffect } = React;
 
 // ── INJECTED CONTENT ──
-window.__SOFTMARK_INJECT__ = {
-  content: __SOFTMARK_CONTENT__,
-  filename: __SOFTMARK_FILENAME__,
-};
+window.__SOFTMARK_INJECT__ = __SOFTMARK_INJECT_DATA__;
 
 // ── JSX SOURCE ──
 __SOFTMARK_JSX_SOURCE__
@@ -219,24 +252,31 @@ JSX_MODIFIED=$(echo "$JSX_SOURCE" | sed \
   -e 's/^export default function/function/' \
 )
 
-# Inject everything using Python for safety
-python3 - "$TMPFILE" "$ESCAPED_CONTENT" "$ESCAPED_FILENAME" "$JSX_MODIFIED" << 'PYEOF'
+# Inject everything using Python for safety — write inject JSON to temp file to avoid arg limits
+INJECT_TMPFILE=$(mktemp /tmp/softmark-inject-XXXXXX.json)
+echo "$INJECT_JSON" > "$INJECT_TMPFILE"
+
+python3 - "$TMPFILE" "$INJECT_TMPFILE" "$JSX_MODIFIED" << 'PYEOF'
 import sys
 
 tmpfile = sys.argv[1]
-content = sys.argv[2]
-filename = sys.argv[3]
-jsx = sys.argv[4]
+inject_file = sys.argv[2]
+jsx = sys.argv[3]
 
 with open(tmpfile, 'r') as f:
     html = f.read()
 
-html = html.replace('__SOFTMARK_CONTENT__', content)
-html = html.replace('__SOFTMARK_FILENAME__', filename)
+with open(inject_file, 'r') as f:
+    inject_json = f.read()
+
+html = html.replace('__SOFTMARK_INJECT_DATA__', inject_json)
 html = html.replace('__SOFTMARK_JSX_SOURCE__', jsx)
 
 with open(tmpfile, 'w') as f:
     f.write(html)
+
+import os
+os.unlink(inject_file)
 PYEOF
 
 # ── Open ──
@@ -246,12 +286,20 @@ if ! $FORCE_BROWSER && command -v cmux &>/dev/null && [[ -n "${CMUX_SURFACE_ID:-
   TMPNAME=$(basename "$TMPFILE")
   python3 -m http.server "$PORT" --directory "$TMPDIR_SERVE" --bind 127.0.0.1 &>/dev/null &
   SERVER_PID=$!
-  echo -e "${GREEN}✓${NC} Opening ${BOLD}${FILENAME}${NC} in cmux browser pane"
+  if $FOLDER_MODE; then
+    echo -e "${GREEN}✓${NC} Opening folder ${BOLD}${FILENAME}${NC} in cmux browser pane"
+  else
+    echo -e "${GREEN}✓${NC} Opening ${BOLD}${FILENAME}${NC} in cmux browser pane"
+  fi
   cmux browser open-split "http://127.0.0.1:${PORT}/${TMPNAME}"
   cmux notify --title "Softmark" --body "Opened ${FILENAME}" 2>/dev/null || true
   (sleep 30 && kill "$SERVER_PID" 2>/dev/null; rm -f "$TMPFILE") &
 else
-  echo -e "${GREEN}✓${NC} Opening ${BOLD}${FILENAME}${NC} in browser"
+  if $FOLDER_MODE; then
+    echo -e "${GREEN}✓${NC} Opening folder ${BOLD}${FILENAME}${NC} in browser"
+  else
+    echo -e "${GREEN}✓${NC} Opening ${BOLD}${FILENAME}${NC} in browser"
+  fi
   open "$TMPFILE"
   (sleep 10 && rm -f "$TMPFILE") &
 fi
