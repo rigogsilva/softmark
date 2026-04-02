@@ -788,7 +788,11 @@ export default function App() {
   const [activeFilePath, setActiveFilePath] = useState(null);
   const [sidebarTab, setSidebarTab] = useState("outline"); // "outline" | "files"
   const [dark, setDark] = useState(() => {
-    try { return window.matchMedia("(prefers-color-scheme: dark)").matches; } catch { return false; }
+    try {
+      const saved = localStorage.getItem("softmark-dark");
+      if (saved !== null) return saved === "1";
+      return window.matchMedia("(prefers-color-scheme: dark)").matches;
+    } catch { return false; }
   });
   const chatEnd = useRef(null);
   const docRef = useRef(null);
@@ -798,6 +802,7 @@ export default function App() {
 
   const hasDoc = markdown.trim().length > 0 || mode === "paste";
 
+  useEffect(() => { try { localStorage.setItem("softmark-dark", dark ? "1" : "0"); } catch {} }, [dark]);
   useEffect(() => { chatEnd.current?.scrollIntoView({ behavior: "smooth" }); }, [chat]);
   useEffect(() => { loadMarked().then(() => setParserReady(true)); }, []);
 
@@ -997,6 +1002,61 @@ export default function App() {
     setActiveFilePath(firstPath);
     load(fileList[0].content, fileList[0].name);
   }, [load]);
+
+  // Build reviewed markdown content for any file data object (used by Save All)
+  const buildFileContent = (fd) => {
+    const { content: md, blocks: blks, comments: coms, userNotes: uns, rawFrontmatter: rfm } = fd;
+    if (!blks || blks.length === 0) return rfm ? rfm + md : md;
+    const hasReview = coms.length > 0 || uns.length > 0;
+    let out;
+    if (hasReview) {
+      const parts = blks.map((block, i) => {
+        let part = block;
+        const blockAi = coms.filter(c => c.blockIndex === i);
+        const blockUser = uns.filter(n => n.blockIndex === i);
+        const inlineNotes = [];
+        blockAi.forEach(c => inlineNotes.push(`> **[AI]** "${c.quote}" — ${c.comment}`));
+        const roots = blockUser.filter(n => !n.parentId);
+        const getReplies = (id) => blockUser.filter(n => n.parentId === id);
+        roots.forEach(n => {
+          inlineNotes.push(`> **[Review]** "${n.quote}" — ${n.text}`);
+          getReplies(n._id).forEach(r => inlineNotes.push(`> **[Reply]** "${r.quote}" — ${r.text}`));
+        });
+        if (inlineNotes.length > 0) part += "\n\n" + inlineNotes.join("\n>\n");
+        return part;
+      });
+      out = parts.join("\n\n");
+    } else {
+      out = md;
+    }
+    return rfm ? rfm + out : out;
+  };
+
+  // Build plain review summary text for any file data object (used by Copy All)
+  const buildFileReviewText = (fd, name) => {
+    const { comments: coms, userNotes: uns } = fd;
+    if (coms.length === 0 && uns.length === 0) return null;
+    let out = `## ${name}\n\n`;
+    if (coms.length > 0) {
+      const cc = coms.filter(c => c.source === "content");
+      const wc = coms.filter(c => c.source === "writing");
+      const oc = coms.filter(c => !c.source);
+      if (cc.length > 0) { out += `### AI Review — Content\n\n`; out += cc.map((c, i) => `${i+1}. > "${c.quote}"\n   ${c.comment}`).join("\n\n"); out += "\n\n"; }
+      if (wc.length > 0) { out += `### AI Review — Writing\n\n`; out += wc.map((c, i) => `${i+1}. > "${c.quote}"\n   ${c.comment}`).join("\n\n"); out += "\n\n"; }
+      if (oc.length > 0) { out += `### AI Review\n\n`; out += oc.map((c, i) => `${i+1}. > "${c.quote}"\n   ${c.comment}`).join("\n\n"); out += "\n\n"; }
+    }
+    if (uns.length > 0) {
+      out += `### Comments\n\n`;
+      const roots = uns.filter(n => !n.parentId);
+      const getReplies = (id) => uns.filter(n => n.parentId === id);
+      roots.forEach((n, i) => {
+        out += `${i+1}. > "${n.quote}"\n   ${n.text}\n`;
+        getReplies(n._id).forEach(r => { out += `\n   ↳ ${r.text}\n`; });
+        out += "\n";
+      });
+    }
+    return out;
+  };
 
   // Auto-load content injected by CLI launcher
   useEffect(() => {
@@ -1332,6 +1392,9 @@ export default function App() {
         .pa:focus{border-color:var(--accent)}.pa::placeholder{color:var(--text3)}
         .pa-bar{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}
 
+        .theme-toggle{position:fixed;bottom:16px;left:16px;z-index:80;width:28px;height:28px;border-radius:50%;border:1px solid var(--border);background:var(--surface);box-shadow:var(--shadow-sm);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:.4;transition:opacity .2s}
+        .theme-toggle:hover{opacity:1}
+        @media print{.theme-toggle{display:none}}
         .fcb{position:fixed;bottom:20px;right:20px;z-index:80;padding:10px 16px;border-radius:24px;border:1px solid var(--border);background:var(--surface);box-shadow:var(--shadow-md);font-family:var(--font-ui);font-size:12px;font-weight:600;color:var(--warn);cursor:pointer;display:flex;align-items:center;gap:6px}
         .fcb:hover{box-shadow:var(--shadow-lg);transform:translateY(-1px)}
         .save-toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:90;padding:10px 20px;border-radius:10px;background:var(--warn);color:#fff;font-family:var(--font-ui);font-size:13px;font-weight:500;box-shadow:var(--shadow-lg);display:flex;align-items:center;gap:10px;cursor:pointer;animation:toast-in .3s ease}
@@ -1538,13 +1601,53 @@ export default function App() {
                     }
                     setCopyText(out);
                   }}>Copy Review</button>
+                {files && (() => {
+                  // Flush active file before computing folder-wide actions
+                  const snapshot = {
+                    ...files,
+                    [activeFilePath]: {
+                      ...files[activeFilePath],
+                      content: markdown, blocks, comments, userNotes, rawFrontmatter, frontmatterMeta,
+                    }
+                  };
+                  const reviewedPaths = Object.keys(snapshot).filter(p => {
+                    const f = snapshot[p];
+                    return f.comments.length > 0 || f.userNotes.length > 0;
+                  });
+                  return (<>
+                    <button className={`btn ${reviewedPaths.length > 0 ? "" : "btn-dis"}`}
+                      disabled={reviewedPaths.length === 0}
+                      onClick={() => {
+                        reviewedPaths.forEach((p, i) => {
+                          setTimeout(() => {
+                            const fd = snapshot[p];
+                            const content = buildFileContent(fd);
+                            const baseName = fd.name.replace(/\.[^.]+$/, "");
+                            const blob = new Blob([content], { type: "text/markdown" });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement("a");
+                            a.href = url;
+                            a.download = baseName + "-reviewed.md";
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(url);
+                          }, i * 200);
+                        });
+                        setSaveMsg(`Saving ${reviewedPaths.length} file${reviewedPaths.length > 1 ? "s" : ""}…`);
+                        setTimeout(() => setSaveMsg(""), 3000);
+                      }}>Save All ({reviewedPaths.length})</button>
+                    <button className={`btn ${reviewedPaths.length > 0 ? "" : "btn-dis"}`}
+                      disabled={reviewedPaths.length === 0}
+                      onClick={() => {
+                        const sections = reviewedPaths.map(p => buildFileReviewText(snapshot[p], snapshot[p].name)).filter(Boolean);
+                        const combined = `# Softmark Review\n\n` + sections.join("\n---\n\n");
+                        try { navigator.clipboard.writeText(combined); setCopyMsg("Copied!"); setTimeout(() => setCopyMsg(""), 2000); }
+                        catch { setCopyText(combined); }
+                      }}>Copy All</button>
+                  </>);
+                })()}
                 <button className="btn" onClick={reset}>Close</button>
-              </div>
-              <div className="tb-sep" />
-              <div className="tb-group">
-                <button className="btn" onClick={() => setDark(d => !d)}>
-                  {dark ? "☀️ Light" : "🌙 Dark"}
-                </button>
               </div>
             </div>
           </div>
@@ -1786,6 +1889,10 @@ export default function App() {
           <button className="save-toast-x" onClick={() => setSaveMsg("")}>✕</button>
         </div>
       )}
+
+      <button className="theme-toggle" onClick={() => setDark(d => !d)} title={dark ? "Switch to light" : "Switch to dark"}>
+        {dark ? "☀" : "●"}
+      </button>
     </div>
   );
 }
